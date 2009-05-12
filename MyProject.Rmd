@@ -1,0 +1,225 @@
+---
+title: "Data Analytics Project (Clustering Diabetes)"
+author: "Amirehsan Davoodi"
+date: "May 10, 2018"
+output: pdf_document
+---
+## Dependencies
+
+```{r}
+# cleaning environment
+rm(list=ls())
+
+# "dplyr" package is similare to "DMwR"
+# install.packages("dplyr", dependency = TRUE)
+library(dplyr)
+library(stringr)
+
+# this package is being used for get rid of
+# columns without much info
+# install.packages("caret", dependency = TRUE)
+
+# global chunk options
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+## Dataset:
+* * *
+The data lists various attributes of people diagnosed with diabetes from the year 1999 to 2008 in 130 US hospitals.
+
+* Load the dataset
+
+```{r}
+# Load data from csv file and specify that value with
+# string "?" must be considered as unknown "N/A"
+dd = read.csv("08_diabetes/diabetic_data.csv",
+              stringsAsFactors = FALSE, na.strings = "?")
+```
+
+### Pre-processing:
+
+## Data Cleaning:
+
+This dataset is comparatively large with more than 100,000 number of rows and 30 columns after getting rid of columns without much info and unique indentifiers column which are not useful for our clustering purpose.
+
+```{r}
+# As some of the columns having too much N/A values
+# exactly after reading data I deleted this columns
+# from my dataset
+dd = dd[ , -caret::nearZeroVar(dd)]
+
+# Two first column on my dataset ("encounter_id", "patient_nbr")
+# are just unique identifiers and not useful for clustering
+# so I am droping them.
+UidCols <- c("encounter_id", "patient_nbr")
+dd = dd[ , !(names(dd) %in% UidCols)]
+cat("Number of patients:" ,nrow(dd))
+cat("\nNumber of different features/attributes" ,ncol(dd))
+```
+
+# Hamming Distance:
+I am computing the hamming distance for this dataset so that I can convert all my columns to nominal values (Categorical values).
+
+Here is the original data. I printed the name of the column "name", value for the first patient "firstrow", the data type for the column "class" and distinct number of values "numfactors".
+
+```{r}
+getInfo = function(dd) {
+  return(do.call(rbind, lapply(names(dd), function(n) {
+    data.frame(name=n,
+               firstrow=dd[1, n],
+               class=class(dd[1, n]),
+               numfactors=length(table(dd[,n])),
+               stringsAsFactors=FALSE)
+  })))
+}
+  
+getInfo(dd)
+```
+
+Now it is obvious that for some column I must do binning. I will do binning for columns that have \tt{numfactors > 100} and bin them to $21$.
+
+```{r}
+numBins = 21
+colsToBin = c("num_lab_procedures", "diag_1", "diag_2", "diag_3")
+for (c in colsToBin){
+  vec = as.integer(dd[ ,c])
+  from = min(vec, na.rm=TRUE)
+  to   = max(vec, na.rm=TRUE)
+  bins = seq(from, to, length.out=numBins)
+  binned = cut(vec, breaks=bins)
+  # For now I just set the class of this column to char but later
+  # I will change all of this classes to factor
+  binned = as.character(binned)
+  dd[ ,c] = binned
+}
+
+# Here is the summary of our data
+# in lab session our TA used summary command but here
+# I used this command to try new command form
+# new library.
+getInfo(dd)
+```
+Now, I am treat all the (N/A)s as a factor class by replaceing with 'missing' and then coercing each column to a factor.
+```{r}
+
+```
+
+
+We are going to apply the hamming distance to these points so we want to convert all our columns to categorical data (factors). Let's take a look at what we have to start with.
+```{r}
+data(iris)
+summary(iris)
+```
+* Remove the values from the **species** columns
+```{r}
+iris_species_unk = iris
+iris_species_unk$Species = NULL
+```
+
+### K-Means
+* * *
+
+* The ``nstart`` allows to run different random starting assigments and to select the one with the lowest within cluster variation
+* Ensure reproducibility by setting the seed
+* Assume that *K* = 3
+
+```{r}
+# kmeans(x, centers, ...)
+set.seed(20)
+km_clusters = kmeans(iris_species_unk[], centers = 3, nstart = 20)
+str(km_clusters)
+```
+
+* Compare the clusters with the species
+```{r}
+table(km_clusters$cluster, iris$Species)
+```
+
+* Plot data samples in clusters
+```{r}
+plot(iris_species_unk$Sepal.Length, iris_species_unk$Sepal.Width, col=km_clusters$cluster, xlab = 'Sepal Lenght', ylab = 'Sepal Width')
+points(km_clusters$centers[,c('Sepal.Length', 'Sepal.Width')], col=1:3, pch=8, cex=2)
+```
+```{r}
+library(ggplot2)
+irisClusters = as.factor(km_clusters$cluster)
+ggplot(iris_species_unk, aes(Petal.Length, Petal.Width, color = irisClusters)) + geom_point()
+```
+
+#### Optimal **K** computation
+Model selection criteria:
+
+* **AIC** (Akaike Information Criterion)
+* **BIC** (Bayesian Information Criterion)
+
+```{r}
+aic_bic = function(fit){
+  # Number of features #
+  m = ncol(fit$centers)
+  # Number of observations #
+  n = length(fit$cluster)
+  # Number of clusters, i.e. k #
+  k = nrow(fit$centers)
+  # Total within-cluster sum of squares
+  D = fit$tot.withinss
+  return(c(D + 2*m*k, D + log(n)*m*k))
+}
+```
+* Which are the **AIC** and **BIC** values?
+```{r}
+values = aic_bic(km_clusters)
+names(values) = c('AIC', 'BIC')
+print(values)
+```
+* Pick the model with the lowest **BIC** or **AIC**
+* Check values of **K** between 3 to 40
+```{r}
+#cat("K", "\t", "AIC", "\t\t", "BIC", "\n")
+lowest_bic = lowest_aic = 1000
+best_k_bic = best_k_aic = 0
+for (k in 3:40) {
+  aic_bic_k = aic_bic(kmeans(iris_species_unk, k))
+  current_aic = aic_bic_k[1]
+  current_bic = aic_bic_k[2]
+  if (current_aic < lowest_aic) {
+    lowest_aic = current_aic
+    best_k_aic = k
+  }
+  if (current_bic < lowest_bic) {
+    lowest_bic = current_bic
+    best_k_bic = k
+  }
+  # cat(k, '\t', bic_aic_k[1], '\t', bic_aic_k[2], '\n')
+}
+```
+
+```{r}
+cat('Best K according to AIC: ', best_k_aic, '-- BIC: ', lowest_aic, '\n')
+```
+```{r}
+cat('Best K according to BIC: ', best_k_bic, '-- BIC: ', lowest_bic, '\n')
+```
+
+##### Activity:
+Apply the same analysis as before to the following dataset:
+
+* ``install.packages('rattle.data')``
+* ``data("wine", package = 'rattle.data')``
+
+### Hierarchical Clustering
+* * *
+* Take a sample from the IRIS dataset:
+```{r}
+idx = sample(1:dim(iris)[1], 40)
+iris_sample = iris[idx,]
+iris_sample$Species = NULL
+```
+* Create the clusters
+```{r}
+hc_clusters = hclust(dist(iris_sample), method="ave")
+str(hc_clusters)
+```
+* Plot the result
+```{r}
+plot(hc_clusters, hang = -1, labels=iris$Species[idx])
+```
